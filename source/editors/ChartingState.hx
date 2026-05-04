@@ -4183,6 +4183,8 @@ class ChartingState extends MusicBeatState
           daText.xAdd = -32;
           daText.yAdd = 6;
           daText.borderSize = 1;
+          daText.alpha = noteAlpha;
+          daText.visible = noteAlpha > 0;
           typeGroup.add(daText);
           daText.sprTracker = note;
         }
