@@ -4034,7 +4034,7 @@ class ChartingState extends MusicBeatState
 
     var top:Float = getVisibleGridTop();
     var bottom:Float = getVisibleGridBottom();
-    var sectionNotes:Array<Array<Dynamic>> = _song.notes[sectionIndex].sectionNotes;
+    var sectionNotes:Array<Dynamic> = _song.notes[sectionIndex].sectionNotes;
 
     for (i in sectionNotes)
     {
