@@ -282,6 +282,8 @@ class ChartingState extends MusicBeatState
   public var noteAlpha:Float = 1.0;
   public var showNotes:Bool = true;
   public var noteDensity:Int = 1;
+  var noteAlphaStepper:FlxUINumericStepper;
+  var showNotesCheckbox:FlxUICheckBox;
 
   var text:String = "";
 
@@ -2358,27 +2360,49 @@ class ChartingState extends MusicBeatState
     UI_box.addGroup(tab_group_chart);
   }
 
-  function addDensityUI():Void
+function addDensityUI():Void
+{
+  var tab_group_density = new FlxUI(null, UI_box);
+  tab_group_density.name = 'Density';
+
+  // EXISTING: cache density
+  noteDensityStepper = new FlxUINumericStepper(10, 20, 16, noteDensity, 16, 32768, 0);
+  noteDensityStepper.name = 'note_density';
+  blockPressWhileTypingOnStepper.push(noteDensityStepper);
+
+  // NEW: alpha control (0.0 → 1.0 step 0.1)
+  noteAlphaStepper = new FlxUINumericStepper(10, 110, 0.1, noteAlpha, 0, 1, 1);
+  noteAlphaStepper.name = 'note_alpha';
+  blockPressWhileTypingOnStepper.push(noteAlphaStepper);
+
+  // NEW: show/hide toggle
+  showNotesCheckbox = new FlxUICheckBox(10, 150, null, null, "Show Notes", 100);
+  showNotesCheckbox.checked = showNotes;
+
+  showNotesCheckbox.callback = function()
   {
-    var tab_group_density = new FlxUI(null, UI_box);
-    tab_group_density.name = 'Density';
+    showNotes = showNotesCheckbox.checked;
+    updateGrid();
+  };
 
-    noteDensityStepper = new FlxUINumericStepper(10, 20, 16, noteDensity, 16, 32768, 0);
-    noteDensityStepper.name = 'note_density';
-    blockPressWhileTypingOnStepper.push(noteDensityStepper);
+  var resetDensityButton:FlxButton = new FlxButton(10, 55, 'Reset Cache', function() {
+    invalidateRenderCache();
+    updateGrid();
+  });
 
-    var resetDensityButton:FlxButton = new FlxButton(10, 55, 'Reset Cache', function() {
-      invalidateRenderCache();
-      updateGrid();
-    });
+  tab_group_density.add(new FlxText(10, 5, 0, 'Note Density Bucket (ms):'));
+  tab_group_density.add(new FlxText(10, 80, 0, 'Larger buckets mean fewer per-frame note scans.'));
+  
+  tab_group_density.add(noteDensityStepper);
+  tab_group_density.add(resetDensityButton);
 
-    tab_group_density.add(new FlxText(10, 5, 0, 'Note Density Bucket (ms):'));
-    tab_group_density.add(new FlxText(10, 80, 0, 'Larger buckets mean fewer per-frame note scans.'));
-    tab_group_density.add(noteDensityStepper);
-    tab_group_density.add(resetDensityButton);
+  // NEW UI labels
+  tab_group_density.add(new FlxText(10, 95, 0, 'Note Transparency (0.0 - 1.0):'));
+  tab_group_density.add(noteAlphaStepper);
+  tab_group_density.add(showNotesCheckbox);
 
-    UI_box.addGroup(tab_group_density);
-  }
+  UI_box.addGroup(tab_group_density);
+}
 
   function pauseVocals()
   {
