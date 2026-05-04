@@ -288,7 +288,6 @@ class ChartingState extends MusicBeatState
   private var noteRenderDirty:Bool = true;
 
   // Safety cap so one extremely dense viewport cannot explode the sprite count.
-  private static inline var MAX_RENDERED_NOTES:Int = 6000;
   var noteAlphaStepper:FlxUINumericStepper;
   var showNotesCheckbox:FlxUICheckBox;
 
@@ -2828,12 +2827,12 @@ function addDensityUI():Void
             for (i in 0...Std.int(addCount))
             {
               addNote(curSelectedNote[0] + (15000 / Conductor.bpm) / stepperStackOffset.value, curSelectedNote[1] + Math.floor(stepperStackSideOffset.value),
-                currentType);
+                currentType, false);
             }
+            if (addCount > 0 && isNoteRenderEnabled()) updateGrid(false);
             selectionNote.playAnim('confirm' + selectionNote.noteData, true);
             if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('addedNote'), 0.7);
 
-            // updateGrid(false);
             updateNoteUI();
           } else if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('click'));
         }
@@ -2886,12 +2885,12 @@ function addDensityUI():Void
             for (i in 0...Std.int(addCount))
             {
               addNote(curSelectedNote[0] + (15000 / Conductor.bpm) / stepperStackOffset.value, curSelectedNote[1] + Math.floor(stepperStackSideOffset.value),
-                currentType);
+                currentType, false);
             }
+            if (addCount > 0 && isNoteRenderEnabled()) updateGrid(false);
             selectionNote.playAnim('confirm' + selectionNote.noteData, true);
             if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('addedNote'), 0.7);
 
-            // updateGrid(false);
             updateNoteUI();
           } else if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('click'));
         }
@@ -4387,7 +4386,17 @@ function addDensityUI():Void
     return FlxMath.bound(scale, 0.45, 1);
   }
 
-  private inline function lowerBoundSectionNotes(notes:Array<Array<Dynamic>>, targetTime:Float):Int
+  private inline function getMaxRenderedNotes():Int
+  {
+    if (_song == null) return 0;
+    var total:Int = CoolUtil.getNoteAmount(_song);
+    if (total >= 5200000) return 256;
+    if (total >= 2000000) return 384;
+    if (total >= 500000) return 768;
+    return 6000;
+  }
+
+  private inline function lowerBoundSectionNotes(notes:Array<Dynamic>, targetTime:Float):Int
   {
     var low:Int = 0;
     var high:Int = notes.length;
@@ -4424,7 +4433,7 @@ function addDensityUI():Void
     if (_song == null || _song.notes == null || _song.notes[sectionIndex] == null || _song.notes[sectionIndex].sectionNotes == null || note == null)
       return;
 
-    var notes:Array<Array<Dynamic>> = _song.notes[sectionIndex].sectionNotes;
+    var notes:Array<Dynamic> = _song.notes[sectionIndex].sectionNotes;
     if (notes.length <= 0 || compareSectionNotes(notes[notes.length - 1], note) <= 0)
     {
       notes.push(note);
@@ -4447,7 +4456,7 @@ function addDensityUI():Void
     if (_song == null || _song.notes == null || _song.notes[sectionIndex] == null || _song.notes[sectionIndex].sectionNotes == null)
       return -1;
 
-    var notes:Array<Array<Dynamic>> = _song.notes[sectionIndex].sectionNotes;
+    var notes:Array<Dynamic> = _song.notes[sectionIndex].sectionNotes;
     if (notes.length <= 0) return -1;
 
     var startIndex:Int = lowerBoundSectionNotes(notes, targetTime - tolerance);
@@ -4479,7 +4488,7 @@ function addDensityUI():Void
   private function selectSectionNoteByIndex(sectionIndex:Int, noteIndex:Int, ?updateTheGrid:Bool = true):Void
   {
     if (_song == null || _song.notes == null || _song.notes[sectionIndex] == null) return;
-    var notes:Array<Array<Dynamic>> = _song.notes[sectionIndex].sectionNotes;
+    var notes:Array<Dynamic> = _song.notes[sectionIndex].sectionNotes;
     if (notes == null || noteIndex < 0 || noteIndex >= notes.length) return;
 
     curSelectedNote = notes[noteIndex];
@@ -4495,7 +4504,7 @@ function addDensityUI():Void
   private function deleteSectionNoteByIndex(sectionIndex:Int, noteIndex:Int, ?gridUpdate:Bool = true):Void
   {
     if (_song == null || _song.notes == null || _song.notes[sectionIndex] == null) return;
-    var notes:Array<Array<Dynamic>> = _song.notes[sectionIndex].sectionNotes;
+    var notes:Array<Dynamic> = _song.notes[sectionIndex].sectionNotes;
     if (notes == null || noteIndex < 0 || noteIndex >= notes.length) return;
 
     if (curSelectedNote == notes[noteIndex]) curSelectedNote = null;
@@ -4544,16 +4553,19 @@ function addDensityUI():Void
     var visibleStart:Float = sectionStart + ((top - gridBG.y) / factor);
     var visibleEnd:Float = sectionStart + ((bottom - gridBG.y) / factor);
 
-    var notes:Array<Array<Dynamic>> = _song.notes[sectionIndex].sectionNotes;
+    var notes:Array<Dynamic> = _song.notes[sectionIndex].sectionNotes;
     if (notes == null || notes.length <= 0) return;
 
     var rendered:Int = 0;
     var tolerance:Float = Math.max(1, Conductor.stepCrochet * 0.08);
     var startIndex:Int = lowerBoundSectionNotes(notes, visibleStart - tolerance);
+    var totalNotes:Int = CoolUtil.getNoteAmount(_song);
+    var maxRenderedNotes:Int = (totalNotes >= 5200000) ? 256 : (totalNotes >= 2000000 ? 384 : (totalNotes >= 500000 ? 768 : 6000));
+    var heavyChartMode:Bool = totalNotes >= 500000;
 
     for (idx in startIndex...notes.length)
     {
-      if (rendered >= MAX_RENDERED_NOTES) break;
+      if (rendered >= maxRenderedNotes) break;
 
       var i:Array<Dynamic> = notes[idx];
       if (i == null || i.length < 2) continue;
@@ -4577,7 +4589,7 @@ function addDensityUI():Void
       applyNoteAppearance(note);
       noteGroup.add(note);
 
-      if (note.sustainLength > 0)
+      if (!heavyChartMode && note.sustainLength > 0)
       {
         var sustain:FlxSprite = setupSusNote(note, sectionBeats);
         sustain.visible = true;
@@ -4586,7 +4598,7 @@ function addDensityUI():Void
         sustainGroup.add(sustain);
       }
 
-      if (i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
+      if (!heavyChartMode && i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
       {
         var typeInt:Null<Int> = noteTypeMap.get(i[3]);
         var theType:String = '' + typeInt;
