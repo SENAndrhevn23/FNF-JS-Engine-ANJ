@@ -220,7 +220,7 @@ class ChartingState extends MusicBeatState
 
   // Rendering cache for large charts. Notes are still saved at full count,
   // but the editor only rebuilds the buckets that are needed for the visible area.
-  var noteDensity:Int = 1024;
+  var renderDensity:Int = 1024;
   var noteDensityStepper:FlxUINumericStepper;
   private var sectionDensityCache:Map<Int, Map<Int, Array<Array<Dynamic>>>> = new Map();
   private var sectionDensityCacheDirty:Map<Int, Bool> = new Map();
