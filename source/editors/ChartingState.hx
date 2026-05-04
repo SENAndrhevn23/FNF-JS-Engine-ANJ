@@ -218,6 +218,13 @@ class ChartingState extends MusicBeatState
   var nextRenderedSustains:FlxTypedGroup<FlxSprite>;
   var nextRenderedNotes:FlxTypedGroup<Note>;
 
+  // Rendering cache for large charts. Notes are still saved at full count,
+  // but the editor only rebuilds the buckets that are needed for the visible area.
+  var noteDensity:Int = 1024;
+  var noteDensityStepper:FlxUINumericStepper;
+  private var sectionDensityCache:Map<Int, Map<Int, Array<Array<Dynamic>>>> = new Map();
+  private var sectionDensityCacheDirty:Map<Int, Bool> = new Map();
+
   var gridBG:FlxSprite;
   var nextGridBG:FlxSprite;
 
@@ -478,6 +485,7 @@ class ChartingState extends MusicBeatState
       {name: "Note", label: 'Note'},
       {name: "Events", label: 'Events'},
       {name: "Charting", label: 'Charting'},
+      {name: "Density", label: 'Density'},
       {name: "Data", label: 'Data'},
       {name: "Note Spamming", label: 'Note Spamming'},
     ];
@@ -556,6 +564,7 @@ class ChartingState extends MusicBeatState
     addNoteUI();
     addEventsUI();
     addChartingUI();
+    addDensityUI();
     addNoteStackingUI();
     addSongDataUI();
     updateHeads();
@@ -1169,6 +1178,8 @@ class ChartingState extends MusicBeatState
           }
         }
       }
+      invalidateRenderCache(curSec);
+      invalidateRenderCache(curSec);
       updateGrid(false);
     });
 
@@ -1193,6 +1204,7 @@ class ChartingState extends MusicBeatState
           --i;
         }
       }
+      invalidateRenderCache(curSec);
       updateGrid(false);
       updateNoteUI();
     });
@@ -1211,6 +1223,7 @@ class ChartingState extends MusicBeatState
         note[1] = (note[1] + 4) % 8;
         _song.notes[curSec].sectionNotes[i] = note;
       }
+      invalidateRenderCache(curSec);
       updateGrid(false);
     });
 
@@ -1254,6 +1267,7 @@ class ChartingState extends MusicBeatState
           }
         }
       }
+      invalidateRenderCache(curSec);
       updateGrid(false);
     });
     copyLastButton.setGraphicSize(80, 30);
@@ -1284,6 +1298,7 @@ class ChartingState extends MusicBeatState
         _song.notes[curSec].sectionNotes.push(i);
       }
 
+      invalidateRenderCache(curSec);
       updateGrid(false);
     });
     var mirrorButton:FlxButton = new FlxButton(duetButton.x + 100, duetButton.y, "Mirror Notes", function() {
@@ -1304,6 +1319,7 @@ class ChartingState extends MusicBeatState
         // _song.notes[curSec].sectionNotes.push(i);
       }
 
+      invalidateRenderCache(curSec);
       updateGrid(false);
     });
     var clearLeftSectionButton:FlxButton = new FlxButton(duetButton.x, duetButton.y + 30, "Clear Left Side", function() {
@@ -1327,6 +1343,7 @@ class ChartingState extends MusicBeatState
         }
       }
 
+      invalidateRenderCache(curSection);
       updateGrid(false);
       updateNoteUI();
     });
@@ -1484,6 +1501,7 @@ class ChartingState extends MusicBeatState
           _song.notes[curSec].sectionNotes.push(copiedNote);
         }
       }
+      invalidateRenderCache(curSec);
       updateGrid(false);
     });
     copyNextButton.color = FlxColor.CYAN;
@@ -1536,6 +1554,8 @@ class ChartingState extends MusicBeatState
               }
             }
         }
+
+        invalidateRenderCache();
     });
     deleteSections.color = FlxColor.YELLOW;
     deleteSections.label.color = FlxColor.WHITE;
@@ -1795,6 +1815,7 @@ class ChartingState extends MusicBeatState
         if (note[0] < minimumTime) note[0] = minimumTime;
         _song.notes[curSec].sectionNotes[i] = note;
       }
+      invalidateRenderCache(curSec);
       updateGrid(false);
     });
 
@@ -1807,6 +1828,7 @@ class ChartingState extends MusicBeatState
       {
         _song.notes[curSec].sectionNotes[i][0] += (stepperShiftSteps.value) * (15000 / Conductor.bpm);
       }
+      invalidateRenderCache(curSec);
       updateGrid(false);
     });
     shiftNotesButton.setGraphicSize(Std.int(shiftNotesButton.width), Std.int(shiftNotesButton.height));
@@ -2331,6 +2353,28 @@ class ChartingState extends MusicBeatState
     UI_box.addGroup(tab_group_chart);
   }
 
+  function addDensityUI():Void
+  {
+    var tab_group_density = new FlxUI(null, UI_box);
+    tab_group_density.name = 'Density';
+
+    noteDensityStepper = new FlxUINumericStepper(10, 20, 16, noteDensity, 16, 32768, 0);
+    noteDensityStepper.name = 'note_density';
+    blockPressWhileTypingOnStepper.push(noteDensityStepper);
+
+    var resetDensityButton:FlxButton = new FlxButton(10, 55, 'Reset Cache', function() {
+      invalidateRenderCache();
+      updateGrid();
+    });
+
+    tab_group_density.add(new FlxText(10, 5, 0, 'Note Density Bucket (ms):'));
+    tab_group_density.add(new FlxText(10, 80, 0, 'Larger buckets mean fewer per-frame note scans.'));
+    tab_group_density.add(noteDensityStepper);
+    tab_group_density.add(resetDensityButton);
+
+    UI_box.addGroup(tab_group_density);
+  }
+
   function pauseVocals()
   {
     if (vocals != null) vocals.pause();
@@ -2493,6 +2537,11 @@ class ChartingState extends MusicBeatState
 
         case 'section_bpm':
           _song.notes[curSec].bpm = nums.value;
+          updateGrid();
+
+        case 'note_density':
+          noteDensity = Std.int(Math.max(1, nums.value));
+          invalidateRenderCache();
           updateGrid();
 
         case 'inst_volume':
@@ -3634,6 +3683,7 @@ class ChartingState extends MusicBeatState
     }
 
     updateNoteUI();
+    invalidateRenderCache(curSec);
     updateGrid(false);
   }
 
@@ -3998,6 +4048,54 @@ class ChartingState extends MusicBeatState
   }
 
 
+  private function invalidateRenderCache(?sectionIndex:Int = -1):Void
+  {
+    if (sectionIndex < 0)
+    {
+      sectionDensityCache = new Map();
+      sectionDensityCacheDirty = new Map();
+      return;
+    }
+
+    sectionDensityCache.remove(sectionIndex);
+    sectionDensityCacheDirty.set(sectionIndex, true);
+  }
+
+  private function rebuildSectionDensityCache(sectionIndex:Int):Map<Int, Array<Array<Dynamic>>>
+  {
+    var buckets:Map<Int, Array<Array<Dynamic>>> = new Map();
+    if (_song == null || _song.notes == null || _song.notes[sectionIndex] == null || _song.notes[sectionIndex].sectionNotes == null)
+    {
+      sectionDensityCache.set(sectionIndex, buckets);
+      sectionDensityCacheDirty.set(sectionIndex, false);
+      return buckets;
+    }
+
+    var density:Int = Std.int(Math.max(1, noteDensity));
+    for (note in _song.notes[sectionIndex].sectionNotes)
+    {
+      if (note == null || note.length < 2) continue;
+
+      var bucket:Int = Std.int(Math.floor(note[0] / density));
+      if (!buckets.exists(bucket)) buckets.set(bucket, []);
+      buckets.get(bucket).push(note);
+    }
+
+    sectionDensityCache.set(sectionIndex, buckets);
+    sectionDensityCacheDirty.set(sectionIndex, false);
+    return buckets;
+  }
+
+  private inline function getSectionDensityCache(sectionIndex:Int):Map<Int, Array<Array<Dynamic>>>
+  {
+    if (!sectionDensityCache.exists(sectionIndex) || (sectionDensityCacheDirty.exists(sectionIndex) && sectionDensityCacheDirty.get(sectionIndex)))
+    {
+      return rebuildSectionDensityCache(sectionIndex);
+    }
+
+    return sectionDensityCache.get(sectionIndex);
+  }
+
   inline function getVisibleGridTop():Float
   {
     return FlxG.camera.scroll.y - NOTE_RENDER_PADDING;
@@ -4034,46 +4132,60 @@ class ChartingState extends MusicBeatState
 
     var top:Float = getVisibleGridTop();
     var bottom:Float = getVisibleGridBottom();
-    var sectionNotes:Array<Dynamic> = _song.notes[sectionIndex].sectionNotes;
+    var factor:Float = (GRID_SIZE * zoomList[curZoom]) / Conductor.stepCrochet;
+    var visibleStart:Float = sectionStart + ((top - gridBG.y) / factor);
+    var visibleEnd:Float = sectionStart + ((bottom - gridBG.y) / factor);
 
-    for (i in sectionNotes)
+    var density:Int = Std.int(Math.max(1, noteDensity));
+    var startBucket:Int = Std.int(Math.floor(visibleStart / density));
+    var endBucket:Int = Std.int(Math.floor(visibleEnd / density));
+
+    var buckets = getSectionDensityCache(sectionIndex);
+    for (bucket in startBucket...endBucket + 1)
     {
-      if (i == null || i.length < 2) continue;
+      if (!buckets.exists(bucket)) continue;
 
-      var daStrumTime:Float = i[0];
-      var relTime:Float = daStrumTime - sectionStart;
-      var noteY:Float = getNoteRenderY(relTime, sectionBeats);
-
-      var susLength:Float = 0;
-      if (i.length > 2 && i[2] != null) susLength = i[2];
-      var susHeight:Int = (susLength > 0) ? getRenderedSustainHeight(susLength) : 0;
-
-      if (noteY > bottom || noteY + GRID_SIZE + susHeight < top) continue;
-
-      var note:Note = setupNoteData(i, isNextSection);
-      note.mustPress = _song.notes[sectionIndex].mustHitSection;
-      if (i[1] > 3) note.mustPress = !note.mustPress;
-
-      noteGroup.add(note);
-
-      if (note.sustainLength > 0)
+      for (i in buckets.get(bucket))
       {
-        sustainGroup.add(setupSusNote(note, sectionBeats));
-      }
+        if (i == null || i.length < 2) continue;
 
-      if (i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
-      {
-        var typeInt:Null<Int> = noteTypeMap.get(i[3]);
-        var theType:String = '' + typeInt;
-        if (typeInt == null) theType = '?';
+        var daStrumTime:Float = i[0];
+        if (daStrumTime < visibleStart || daStrumTime > visibleEnd) continue;
 
-        var daText:AttachedFlxText = new AttachedFlxText(0, 0, 100, theType, 24);
-        daText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-        daText.xAdd = -32;
-        daText.yAdd = 6;
-        daText.borderSize = 1;
-        typeGroup.add(daText);
-        daText.sprTracker = note;
+        var relTime:Float = daStrumTime - sectionStart;
+        var noteY:Float = getNoteRenderY(relTime, sectionBeats);
+
+        var susLength:Float = 0;
+        if (i.length > 2 && i[2] != null) susLength = i[2];
+        var susHeight:Int = (susLength > 0) ? getRenderedSustainHeight(susLength) : 0;
+
+        if (noteY > bottom || noteY + GRID_SIZE + susHeight < top) continue;
+
+        var note:Note = setupNoteData(i, isNextSection);
+        note.mustPress = _song.notes[sectionIndex].mustHitSection;
+        if (i[1] > 3) note.mustPress = !note.mustPress;
+
+        noteGroup.add(note);
+
+        if (note.sustainLength > 0)
+        {
+          sustainGroup.add(setupSusNote(note, sectionBeats));
+        }
+
+        if (i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
+        {
+          var typeInt:Null<Int> = noteTypeMap.get(i[3]);
+          var theType:String = '' + typeInt;
+          if (typeInt == null) theType = '?';
+
+          var daText:AttachedFlxText = new AttachedFlxText(0, 0, 100, theType, 24);
+          daText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+          daText.xAdd = -32;
+          daText.yAdd = 6;
+          daText.borderSize = 1;
+          typeGroup.add(daText);
+          daText.sprTracker = note;
+        }
       }
     }
   }
@@ -4260,6 +4372,7 @@ class ChartingState extends MusicBeatState
     curRenderedNotes.remove(note, true);
     note.destroy();
 
+    invalidateRenderCache(curSec);
     unsavedChanges = true;
   }
 
@@ -4293,6 +4406,7 @@ class ChartingState extends MusicBeatState
       _song.notes[daSection].sectionNotes = [];
     }
 
+    invalidateRenderCache();
     unsavedChanges = true;
     updateGrid();
   }
@@ -4313,6 +4427,7 @@ class ChartingState extends MusicBeatState
     {
       _song.notes[curSec].sectionNotes.push([noteStrum, noteData, noteSus, noteTypeIntMap.get(daType)]);
       curSelectedNote = _song.notes[curSec].sectionNotes[_song.notes[curSec].sectionNotes.length - 1];
+      invalidateRenderCache(curSec);
     } else
     {
       var event = eventStuff[Std.parseInt(eventDropDown.selectedId)][0];
@@ -4327,6 +4442,7 @@ class ChartingState extends MusicBeatState
     if (FlxG.keys.pressed.CONTROL && noteData > -1)
     {
       _song.notes[curSec].sectionNotes.push([noteStrum, (noteData + 4) % 8, noteSus, noteTypeIntMap.get(daType)]);
+      invalidateRenderCache(curSec);
       updateGrid();
     }
 
@@ -4351,7 +4467,6 @@ class ChartingState extends MusicBeatState
           if (note.eventLength > 1) daText.yAdd += 8;
           curRenderedNoteType.add(daText);
           daText.sprTracker = note;
-        // trace('test: ' + i[0], 'startThing: ' + startThing, 'endThing: ' + endThing);
         default:
           var beats:Float = getSectionBeats();
           var note:Note = setupNoteData(curSelectedNote, false);
@@ -4435,6 +4550,7 @@ class ChartingState extends MusicBeatState
       undos.splice(0, 1);
       trace("Performed an Undo! Undos remaining: " + undos.length);
       unsavedChanges = true;
+      invalidateRenderCache();
       if (curSection > _song.notes.length) changeSection(_song.notes.length - 1);
       updateGrid();
     }
