@@ -3408,6 +3408,8 @@ class ChartingState extends MusicBeatState
   var wavData:Array<Array<Array<Float>>> = [[[0], [0]], [[0], [0]]];
 
   var lastWaveformHeight:Int = 0;
+  private static inline var NOTE_RENDER_PADDING:Float = 260;
+
 
   function updateWaveform()
   {
@@ -3859,7 +3861,6 @@ class ChartingState extends MusicBeatState
     curRenderedSustains.clear();
     if (!onlyEvents)
     {
-      // classic fnf styled grid updating
       while (curRenderedNotes.length > 0)
       {
         curRenderedNotes.remove(curRenderedNotes.members[0], true);
@@ -3876,7 +3877,7 @@ class ChartingState extends MusicBeatState
         txt.destroy();
       });
       curRenderedNoteType.clear();
-      // Why did i remove this?
+
       if (andNext)
       {
         nextRenderedNotes.forEach(TheNoteThatShouldBeKilledBecauseWeDontNeedIt -> {
@@ -3892,108 +3893,46 @@ class ChartingState extends MusicBeatState
         if (_song.notes[curSec].changeBPM && _song.notes[curSec].bpm > 0)
         {
           Conductor.changeBPM(_song.notes[curSec].bpm);
-          // trace('BPM of this section:');
         } else
         {
-          // get last bpm
           var daBPM:Float = _song.bpm;
           for (i in 0...curSec)
             if (_song.notes[i].changeBPM) daBPM = _song.notes[i].bpm;
           Conductor.changeBPM(daBPM);
         }
 
-        // CURRENT SECTION
         var beats:Float = getSectionBeats();
-        for (i in _song.notes[curSec].sectionNotes)
-        {
-          var note:Note = setupNoteData(i, false);
-          curRenderedNotes.add(note);
-          if (note.sustainLength > 0)
-          {
-            curRenderedSustains.add(setupSusNote(note, beats));
-          }
-
-          if (i[3] != null && note.noteType != null && note.noteType.length > 0)
-          {
-            var typeInt:Null<Int> = noteTypeMap.get(i[3]);
-            var theType:String = '' + typeInt;
-            if (typeInt == null) theType = '?';
-
-            var daText:AttachedFlxText = new AttachedFlxText(0, 0, 100, theType, 24);
-            daText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-            daText.xAdd = -32;
-            daText.yAdd = 6;
-            daText.borderSize = 1;
-            curRenderedNoteType.add(daText);
-            daText.sprTracker = note;
-          }
-          note.mustPress = _song.notes[curSec].mustHitSection;
-          if (i[1] > 3) note.mustPress = !note.mustPress;
-        }
+        var sectionStart:Float = sectionStartTime();
+        renderVisibleNotesForSection(curSec, sectionStart, beats, false, curRenderedNotes, curRenderedSustains, curRenderedNoteType);
       }
     }
 
-    // CURRENT EVENTS
-    var startThing:Float = sectionStartTime();
-    var endThing:Float = sectionStartTime(1);
-    for (i in _song.events)
+    var currentStart:Float = sectionStartTime();
+    var nextStart:Float = sectionStartTime(1);
+    var nextNextStart:Float = sectionStartTime(2);
+
+    if (_song.events != null && _song.events.length > 0)
     {
-      if (endThing > i[0] && i[0] >= startThing)
-      {
-        var note:Note = setupNoteData(i, false);
-        curRenderedNotes.add(note);
-
-        var text:String = 'Event: ' + note.eventName + ' (' + Math.floor(note.strumTime) + ' ms)' + '\nValue 1: ' + note.eventVal1 + '\nValue 2: '
-          + note.eventVal2;
-        if (note.eventLength > 1) text = note.eventLength + ' Events:\n' + note.eventName;
-
-        var daText:AttachedFlxText = new AttachedFlxText(0, 0, 400, text, 12);
-        daText.setFormat(Paths.font("vcr.ttf"), 12, FlxColor.WHITE, RIGHT, FlxTextBorderStyle.OUTLINE_FAST, FlxColor.BLACK);
-        daText.xAdd = -410;
-        daText.borderSize = 1;
-        if (note.eventLength > 1) daText.yAdd += 8;
-        curRenderedEventText.add(daText);
-        daText.sprTracker = note;
-        // trace('test: ' + i[0], 'startThing: ' + startThing, 'endThing: ' + endThing);
-      }
+      renderVisibleEventsForRange(_song.events, currentStart, nextStart, currentStart, getSectionBeats(), false, curRenderedNotes, curRenderedEventText);
     }
 
     if (andNext)
     {
       if (!onlyEvents)
       {
-        // NEXT SECTION, which shouldnt even update if you're in the current section
-        var beats:Float = getSectionBeats(1);
+        var nextBeats:Float = getSectionBeats(1);
         if (curSec < _song.notes.length - 1)
         {
-          for (i in _song.notes[curSec + 1].sectionNotes)
-          {
-            var note:Note = setupNoteData(i, true);
-            note.alpha = 0.6;
-            nextRenderedNotes.add(note);
-            if (note.sustainLength > 0)
-            {
-              nextRenderedSustains.add(setupSusNote(note, beats));
-            }
-          }
+          renderVisibleNotesForSection(curSec + 1, currentStart, nextBeats, true, nextRenderedNotes, nextRenderedSustains, null);
         }
       }
 
-      // NEXT EVENTS
-      var startThing:Float = sectionStartTime(1);
-      var endThing:Float = sectionStartTime(2);
-      for (i in _song.events)
+      if (_song.events != null && _song.events.length > 0)
       {
-        if (endThing > i[0] && i[0] >= startThing)
-        {
-          var note:Note = setupNoteData(i, true);
-          note.alpha = 0.6;
-          nextRenderedNotes.add(note);
-        }
+        renderVisibleEventsForRange(_song.events, nextStart, nextNextStart, currentStart, getSectionBeats(1), true, nextRenderedNotes, null);
       }
     }
     #if DISCORD_ALLOWED
-    // Updating Discord Rich Presence (for updating Note Count)
     DiscordClient.changePresence("Chart Editor - Charting " + StringTools.replace(_song.song, '-', ' '),
       '${FlxStringUtil.formatMoney(CoolUtil.getNoteAmount(_song), false)} Notes');
     #end
@@ -4056,6 +3995,125 @@ class ChartingState extends MusicBeatState
     // if(isNextSection) note.y += gridBG.height;
     if (note.y < -150) note.y = -150;
     return note;
+  }
+
+
+  inline function getVisibleGridTop():Float
+  {
+    return FlxG.camera.scroll.y - NOTE_RENDER_PADDING;
+  }
+
+  inline function getVisibleGridBottom():Float
+  {
+    return FlxG.camera.scroll.y + FlxG.height + NOTE_RENDER_PADDING;
+  }
+
+  inline function getNoteRenderY(relativeStrumTime:Float, beats:Float):Float
+  {
+    var value:Float = relativeStrumTime / (beats * 4 * Conductor.stepCrochet);
+    return GRID_SIZE * beats * 4 * zoomList[curZoom] * value + gridBG.y;
+  }
+
+  inline function getRenderedSustainHeight(sustainLength:Float):Int
+  {
+    var height:Int = Math.floor(
+      FlxMath.remapToRange(sustainLength, 0, Conductor.stepCrochet * 16, 0, GRID_SIZE * 16 * zoomList[curZoom])
+      + (GRID_SIZE * zoomList[curZoom])
+      - GRID_SIZE / 2);
+
+    var minHeight:Int = Std.int((GRID_SIZE * zoomList[curZoom] / 2) + GRID_SIZE / 2);
+    if (height < minHeight) height = minHeight;
+    if (height < 1) height = 1;
+    return height;
+  }
+
+  private function renderVisibleNotesForSection(sectionIndex:Int, sectionStart:Float, sectionBeats:Float, isNextSection:Bool,
+    noteGroup:FlxTypedGroup<Note>, sustainGroup:FlxTypedGroup<FlxSprite>, typeGroup:Null<FlxTypedGroup<AttachedFlxText>>):Void
+  {
+    if (_song.notes[sectionIndex] == null || _song.notes[sectionIndex].sectionNotes == null) return;
+
+    var top:Float = getVisibleGridTop();
+    var bottom:Float = getVisibleGridBottom();
+    var sectionNotes:Array<Array<Dynamic>> = _song.notes[sectionIndex].sectionNotes;
+
+    for (i in sectionNotes)
+    {
+      if (i == null || i.length < 2) continue;
+
+      var daStrumTime:Float = i[0];
+      var relTime:Float = daStrumTime - sectionStart;
+      var noteY:Float = getNoteRenderY(relTime, sectionBeats);
+
+      var susLength:Float = 0;
+      if (i.length > 2 && i[2] != null) susLength = i[2];
+      var susHeight:Int = (susLength > 0) ? getRenderedSustainHeight(susLength) : 0;
+
+      if (noteY > bottom || noteY + GRID_SIZE + susHeight < top) continue;
+
+      var note:Note = setupNoteData(i, isNextSection);
+      note.mustPress = _song.notes[sectionIndex].mustHitSection;
+      if (i[1] > 3) note.mustPress = !note.mustPress;
+
+      noteGroup.add(note);
+
+      if (note.sustainLength > 0)
+      {
+        sustainGroup.add(setupSusNote(note, sectionBeats));
+      }
+
+      if (i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
+      {
+        var typeInt:Null<Int> = noteTypeMap.get(i[3]);
+        var theType:String = '' + typeInt;
+        if (typeInt == null) theType = '?';
+
+        var daText:AttachedFlxText = new AttachedFlxText(0, 0, 100, theType, 24);
+        daText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, CENTER, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+        daText.xAdd = -32;
+        daText.yAdd = 6;
+        daText.borderSize = 1;
+        typeGroup.add(daText);
+        daText.sprTracker = note;
+      }
+    }
+  }
+
+  private function renderVisibleEventsForRange(events:Array<Dynamic>, filterStart:Float, filterEnd:Float, sectionStart:Float,
+    sectionBeats:Float, isNextSection:Bool, noteGroup:FlxTypedGroup<Note>, textGroup:Null<FlxTypedGroup<AttachedFlxText>>):Void
+  {
+    var top:Float = getVisibleGridTop();
+    var bottom:Float = getVisibleGridBottom();
+
+    for (i in events)
+    {
+      if (i == null || i.length < 2) continue;
+      var eventTime:Float = i[0];
+      if (eventTime < filterStart || eventTime >= filterEnd) continue;
+
+      var relTime:Float = eventTime - sectionStart;
+      var noteY:Float = getNoteRenderY(relTime, sectionBeats);
+
+      if (noteY > bottom || noteY + GRID_SIZE < top) continue;
+
+      var note:Note = setupNoteData(i, isNextSection);
+      if (isNextSection) note.alpha = 0.6;
+      noteGroup.add(note);
+
+      if (!isNextSection && textGroup != null)
+      {
+        var text:String = 'Event: ' + note.eventName + ' (' + Math.floor(note.strumTime) + ' ms)' + '\nValue 1: ' + note.eventVal1 + '\nValue 2: '
+          + note.eventVal2;
+        if (note.eventLength > 1) text = note.eventLength + ' Events:\n' + note.eventName;
+
+        var daText:AttachedFlxText = new AttachedFlxText(0, 0, 400, text, 12);
+        daText.setFormat(Paths.font("vcr.ttf"), 12, FlxColor.WHITE, RIGHT, FlxTextBorderStyle.OUTLINE_FAST, FlxColor.BLACK);
+        daText.xAdd = -410;
+        daText.borderSize = 1;
+        if (note.eventLength > 1) daText.yAdd += 8;
+        textGroup.add(daText);
+        daText.sprTracker = note;
+      }
+    }
   }
 
   function getEventName(names:Array<Dynamic>):String
