@@ -278,6 +278,11 @@ class ChartingState extends MusicBeatState
   public static var idleMusicAllow:Bool = false;
   public static var unsavedChanges:Bool = false;
 
+// chart editor stuff for no lag
+  public var noteAlpha:Float = 1.0;
+  public var showNotes:Bool = true;
+  public var noteDensity:Int = 1;
+
   var text:String = "";
 
   public static var vortex:Bool = false;
