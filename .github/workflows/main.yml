@@ -3,17 +3,16 @@ name: Build
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
 
-# ===============================
-# LINUX BUILD
-# ===============================
-  buildLinux:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -22,122 +21,64 @@ jobs:
         with:
           haxe-version: 4.3.7
 
-      - name: Install Dependencies
+      # ---------------------------
+      # INSTALL HAXE LIBRARIES
+      # ---------------------------
+      - name: Install Haxe Libraries
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libvlc-dev libvlccore-dev
-
           haxelib setup ~/haxelib
-          haxelib install lime --quiet
-          haxelib install openfl --quiet
-          haxelib install flixel --quiet
-          haxelib install flixel-tools --quiet
-          haxelib install hxcpp --quiet
 
+          # Install REQUIRED core libs
+          yes | haxelib install hxp
+          yes | haxelib install lime
+          yes | haxelib install openfl
+          yes | haxelib install flixel
+          yes | haxelib install flixel-tools
+          yes | haxelib install hxcpp
+
+          # ⭐ IMPORTANT FIX ⭐
+          haxelib set hxp
+          haxelib set lime
+          haxelib set openfl
+          haxelib set flixel
+          haxelib set hxcpp
+
+          # Lime environment setup
           haxelib run lime setup
 
-      - name: Build Linux
-        run: |
-          haxelib run lime build linux -D commit
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linuxBuild
-          path: export/release/linux/bin
-
-# ===============================
-# WINDOWS BUILD
-# ===============================
-  buildWindows:
-    runs-on: windows-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: krdlab/setup-haxe@v1
-        with:
-          haxe-version: 4.3.7
-
-      - name: Install Dependencies
-        shell: cmd
-        run: |
-          haxelib setup C:/haxelib
-          haxelib install lime --quiet
-          haxelib install openfl --quiet
-          haxelib install flixel --quiet
-          haxelib install flixel-tools --quiet
-          haxelib install hxcpp --quiet
-          haxelib run lime setup
-
+      # ---------------------------
+      # BUILD WINDOWS
+      # ---------------------------
       - name: Build Windows
-        run: |
-          haxelib run lime build windows -D commit
+        if: runner.os == 'Windows'
+        run: haxelib run lime build windows -D commit
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windowsBuild
-          path: export/release/windows/bin
+      # ---------------------------
+      # BUILD LINUX
+      # ---------------------------
+      - name: Build Linux
+        if: runner.os == 'Linux'
+        run: haxelib run lime build linux -D commit
 
-# ===============================
-# MAC BUILD
-# ===============================
-  buildMac:
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: krdlab/setup-haxe@v1
-        with:
-          haxe-version: 4.3.7
-
-      - name: Install Dependencies
-        run: |
-          haxelib setup ~/haxelib
-          haxelib install lime --quiet
-          haxelib install openfl --quiet
-          haxelib install flixel --quiet
-          haxelib install flixel-tools --quiet
-          haxelib install hxcpp --quiet
-          haxelib run lime setup
-
+      # ---------------------------
+      # BUILD MAC
+      # ---------------------------
       - name: Build macOS
-        run: |
-          haxelib run lime build mac -D commit
+        if: runner.os == 'macOS'
+        run: haxelib run lime build mac -D commit
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macBuild
-          path: export/release/macos/bin
-
-# ===============================
-# HTML5 BUILD (PLAYABLE WEB VERSION)
-# ===============================
-  buildHTML5:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: krdlab/setup-haxe@v1
-        with:
-          haxe-version: 4.3.7
-
-      - name: Install Dependencies
-        run: |
-          haxelib setup ~/haxelib
-          haxelib install lime --quiet
-          haxelib install openfl --quiet
-          haxelib install flixel --quiet
-          haxelib install flixel-tools --quiet
-          haxelib install hxcpp --quiet
-          haxelib run lime setup
-
+      # ---------------------------
+      # BUILD HTML5 (SAFE SCHOOL VERSION)
+      # ---------------------------
       - name: Build HTML5
-        run: |
-          haxelib run lime build html5 -D commit
+        if: runner.os == 'Linux'
+        run: haxelib run lime build html5 -D commit
 
+      # ---------------------------
+      # UPLOAD RESULT
+      # ---------------------------
       - uses: actions/upload-artifact@v4
         with:
-          name: html5Build
-          path: export/release/html5/bin
+          name: build-${{ runner.os }}
+          path: export/release
