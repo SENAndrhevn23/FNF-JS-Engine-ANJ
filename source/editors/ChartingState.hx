@@ -282,8 +282,6 @@ class ChartingState extends MusicBeatState
   public var noteAlpha:Float = 1.0;
   public var showNotes:Bool = true;
   public var noteDensity:Int = 1;
-  private var cachedNoteAmount:Int = 0;
-  private var cachedNoteAmountDirty:Bool = true;
   var noteAlphaStepper:FlxUINumericStepper;
   var showNotesCheckbox:FlxUICheckBox;
 
@@ -334,8 +332,6 @@ class ChartingState extends MusicBeatState
       addSection();
       PlayState.SONG = _song;
     }
-
-    refreshCachedNoteAmount();
     difficulty = CoolUtil.currentDifficulty;
     specialAudioName = _song.specialAudioName;
     specialEventsName = _song.specialEventsName;
@@ -348,7 +344,7 @@ class ChartingState extends MusicBeatState
     #if DISCORD_ALLOWED
     // Updating Discord Rich Presence
     DiscordClient.changePresence("Chart Editor - Charting " + StringTools.replace(_song.song, '-', ' '),
-      '${FlxStringUtil.formatMoney(getCachedNoteAmount(), false)} Notes');
+      '${FlxStringUtil.formatMoney(CoolUtil.getNoteAmount(_song), false)} Notes');
     #end
 
     FlxG.autoPause = true; // this might help with some issues
@@ -1465,7 +1461,7 @@ class ChartingState extends MusicBeatState
             trace('Loops Remaining: '
               + (value2 - i)
               + ', current note count: '
-              + FlxStringUtil.formatMoney(getCachedNoteAmount(), false)
+              + FlxStringUtil.formatMoney(CoolUtil.getNoteAmount(_song), false)
               + ' Notes');
           }
         }
@@ -2882,7 +2878,7 @@ function addDensityUI():Void
       }
       if (FlxG.keys.justPressed.ENTER)
       {
-        if (getCachedNoteAmount() <= 1000000) saveLevel(true, true);
+        if (CoolUtil.getNoteAmount(_song) <= 1000000) saveLevel(true, true);
         FlxG.mouse.visible = false;
         PlayState.SONG = _song;
         FlxG.sound.music.stop();
@@ -3302,7 +3298,7 @@ function addDensityUI():Void
         + quantization
         + "th"
         + "\n\n"
-        + FlxStringUtil.formatMoney(getCachedNoteAmount(), false)
+        + FlxStringUtil.formatMoney(CoolUtil.getNoteAmount(_song), false)
         + ' Notes'
         + "\n\nRendered Notes: "
         + FlxStringUtil.formatMoney(Math.abs(curRenderedNotes.length + nextRenderedNotes.length), false);
@@ -4017,7 +4013,7 @@ function addDensityUI():Void
     }
     #if DISCORD_ALLOWED
     DiscordClient.changePresence("Chart Editor - Charting " + StringTools.replace(_song.song, '-', ' '),
-      '${FlxStringUtil.formatMoney(getCachedNoteAmount(), false)} Notes');
+      '${FlxStringUtil.formatMoney(CoolUtil.getNoteAmount(_song), false)} Notes');
     #end
   }
 
@@ -4117,52 +4113,6 @@ function addDensityUI():Void
     sectionDensityCache.set(sectionIndex, buckets);
     sectionDensityCacheDirty.set(sectionIndex, false);
     return buckets;
-  }
-
-  private inline function markCachedNoteAmountDirty():Void
-  {
-    cachedNoteAmountDirty = true;
-  }
-
-  private function refreshCachedNoteAmount():Int
-  {
-    if (!cachedNoteAmountDirty) return cachedNoteAmount;
-
-    var total:Int = 0;
-    if (_song != null)
-    {
-      if (_song.notes != null)
-      {
-        for (section in _song.notes)
-        {
-          if (section != null && section.sectionNotes != null) total += section.sectionNotes.length;
-        }
-      }
-
-      if (_song.events != null)
-      {
-        total += _song.events.length;
-      }
-    }
-
-    cachedNoteAmount = total;
-    cachedNoteAmountDirty = false;
-    return cachedNoteAmount;
-  }
-
-  private inline function getCachedNoteAmount():Int
-  {
-    return refreshCachedNoteAmount();
-  }
-
-  private inline function addToCachedNoteAmount(amount:Int):Void
-  {
-    if (cachedNoteAmountDirty)
-    {
-      refreshCachedNoteAmount();
-    }
-    cachedNoteAmount += amount;
-    if (cachedNoteAmount < 0) cachedNoteAmount = 0;
   }
 
   private inline function getSectionDensityCache(sectionIndex:Int):Map<Int, Array<Array<Dynamic>>>
@@ -4402,8 +4352,6 @@ function addDensityUI():Void
     var noteDataToCheck:Int = note.noteData;
     if (noteDataToCheck > -1 && note.mustPress != _song.notes[curSec].mustHitSection) noteDataToCheck += 4;
 
-    var removed:Bool = false;
-
     if (note.noteData > -1) // Normal Notes
     {
       for (i in _song.notes[curSec].sectionNotes)
@@ -4413,7 +4361,6 @@ function addDensityUI():Void
           if (i == curSelectedNote) curSelectedNote = null;
           // FlxG.log.add('FOUND EVIL NOTE');
           _song.notes[curSec].sectionNotes.remove(i);
-          removed = true;
           break;
         }
       }
@@ -4430,7 +4377,6 @@ function addDensityUI():Void
           }
           // FlxG.log.add('FOUND EVIL EVENT');
           _song.events.remove(i);
-          removed = true;
           break;
         }
       }
@@ -4456,8 +4402,6 @@ function addDensityUI():Void
     }
     curRenderedNotes.remove(note, true);
     note.destroy();
-
-    if (removed) addToCachedNoteAmount(-1);
 
     invalidateRenderCache(curSec);
     unsavedChanges = true;
@@ -4493,8 +4437,6 @@ function addDensityUI():Void
       _song.notes[daSection].sectionNotes = [];
     }
 
-    cachedNoteAmount = _song.events != null ? _song.events.length : 0;
-    cachedNoteAmountDirty = false;
     invalidateRenderCache();
     unsavedChanges = true;
     updateGrid();
@@ -4516,7 +4458,6 @@ function addDensityUI():Void
     {
       _song.notes[curSec].sectionNotes.push([noteStrum, noteData, noteSus, noteTypeIntMap.get(daType)]);
       curSelectedNote = _song.notes[curSec].sectionNotes[_song.notes[curSec].sectionNotes.length - 1];
-      addToCachedNoteAmount(1);
       invalidateRenderCache(curSec);
     } else
     {
@@ -4526,14 +4467,12 @@ function addDensityUI():Void
       _song.events.push([noteStrum, [[event, text1, text2]]]);
       curSelectedNote = _song.events[_song.events.length - 1];
       curEventSelected = 0;
-      addToCachedNoteAmount(1);
     }
     changeEventSelected();
 
     if (FlxG.keys.pressed.CONTROL && noteData > -1)
     {
       _song.notes[curSec].sectionNotes.push([noteStrum, (noteData + 4) % 8, noteSus, noteTypeIntMap.get(daType)]);
-      addToCachedNoteAmount(1);
       invalidateRenderCache(curSec);
       updateGrid();
     }
@@ -4618,7 +4557,7 @@ function addDensityUI():Void
 
   public function saveUndo(_song:SwagSong)
   {
-    if (getCachedNoteAmount() <= 50000 && FlxG.save.data.allowUndo)
+    if (CoolUtil.getNoteAmount(_song) <= 50000 && FlxG.save.data.allowUndo)
     {
       var shit = Json.stringify(
         { // doin this so it doesnt act as a reference
@@ -4642,7 +4581,6 @@ function addDensityUI():Void
       undos.splice(0, 1);
       trace("Performed an Undo! Undos remaining: " + undos.length);
       unsavedChanges = true;
-      refreshCachedNoteAmount();
       invalidateRenderCache();
       if (curSection > _song.notes.length) changeSection(_song.notes.length - 1);
       updateGrid();
@@ -4691,7 +4629,6 @@ function addDensityUI():Void
   function clearEvents()
   {
     _song.events = [];
-    refreshCachedNoteAmount();
     unsavedChanges = true;
     updateGrid();
   }
@@ -4699,7 +4636,7 @@ function addDensityUI():Void
   private function saveLevel(?compressed:Bool = false, ?isAuto:Bool = false)
   {
     Paths.gc(true);
-    if (getCachedNoteAmount() > 1000000)
+    if (CoolUtil.getNoteAmount(_song) > 1000000)
     {
       cpp.vm.Gc.enable(false);
     }
