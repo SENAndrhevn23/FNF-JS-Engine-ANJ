@@ -4400,9 +4400,9 @@ function addDensityUI():Void
 
   private inline function getNoteVisualScale():Float
   {
-    var density:Float = Math.max(1, noteDensity);
-    var scale:Float = 1 / (1 + (Math.log(density) * 0.12));
-    return FlxMath.bound(scale, 0.45, 1);
+    // Keep the editor notes at a consistent, normal size.
+    // This avoids oversized sprites and removes density-based shrinking.
+    return 0.8;
   }
 
   private inline function lowerBoundSectionNotes(notes:Array<Dynamic>, targetTime:Float):Int
