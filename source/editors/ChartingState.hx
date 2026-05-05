@@ -288,6 +288,7 @@ class ChartingState extends MusicBeatState
   private var noteRenderDirty:Bool = true;
 
   // Safety cap so one extremely dense viewport cannot explode the sprite count.
+  private static inline var MAX_RENDERED_NOTES:Int = 6000;
   var noteAlphaStepper:FlxUINumericStepper;
   var showNotesCheckbox:FlxUICheckBox;
 
@@ -2827,12 +2828,12 @@ function addDensityUI():Void
             for (i in 0...Std.int(addCount))
             {
               addNote(curSelectedNote[0] + (15000 / Conductor.bpm) / stepperStackOffset.value, curSelectedNote[1] + Math.floor(stepperStackSideOffset.value),
-                currentType, false);
+                currentType);
             }
-            if (addCount > 0 && isNoteRenderEnabled()) updateGrid(false);
             selectionNote.playAnim('confirm' + selectionNote.noteData, true);
             if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('addedNote'), 0.7);
 
+            // updateGrid(false);
             updateNoteUI();
           } else if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('click'));
         }
@@ -2885,12 +2886,12 @@ function addDensityUI():Void
             for (i in 0...Std.int(addCount))
             {
               addNote(curSelectedNote[0] + (15000 / Conductor.bpm) / stepperStackOffset.value, curSelectedNote[1] + Math.floor(stepperStackSideOffset.value),
-                currentType, false);
+                currentType);
             }
-            if (addCount > 0 && isNoteRenderEnabled()) updateGrid(false);
             selectionNote.playAnim('confirm' + selectionNote.noteData, true);
             if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('addedNote'), 0.7);
 
+            // updateGrid(false);
             updateNoteUI();
           } else if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('click'));
         }
@@ -3022,11 +3023,17 @@ function addDensityUI():Void
       }
 
       if (FlxG.keys.pressed.C && !FlxG.keys.pressed.CONTROL)
-        if (!FlxG.mouse.overlaps(curRenderedNotes)) // lmao cant place notes when your cursor already overlaps one
         if (FlxG.mouse.x > gridBG.x
           && FlxG.mouse.x < gridBG.x + gridBG.width
           && FlxG.mouse.y > gridBG.y
-          && FlxG.mouse.y < gridBG.y + gridBG.height) if (!FlxG.keys.pressed.CONTROL) // stop crashing
+          && FlxG.mouse.y < gridBG.y + gridBG.height)
+        {
+          var mouseLane:Int = getMouseSelectionLane();
+          var mouseTime:Float = getMouseSelectionTime();
+          var noteTolerance:Float = Math.max(1, Conductor.stepCrochet * 0.08);
+
+          // Avoid FlxG.mouse.overlaps(curRenderedNotes) here: it scales badly with dense charts.
+          if (findSectionNoteIndexByTimeLane(curSec, mouseTime, mouseLane, noteTolerance) < 0)
           {
             addNote(); // allows you to draw notes by holding C
             var addCount:Float = 0;
@@ -3040,6 +3047,7 @@ function addDensityUI():Void
                 currentType);
             }
           }
+        }
       if (FlxG.keys.pressed.C && FlxG.keys.pressed.CONTROL)
       {
         if (FlxG.mouse.x > gridBG.x
@@ -4273,6 +4281,17 @@ function addDensityUI():Void
     return showNotes && noteAlpha > 0;
   }
 
+  private inline function getRenderedNoteCap():Int
+  {
+    if (_song == null) return MAX_RENDERED_NOTES;
+
+    var totalNotes:Int = CoolUtil.getNoteAmount(_song);
+    if (totalNotes >= 5000000) return 800;
+    if (totalNotes >= 2000000) return 1200;
+    if (totalNotes >= 1000000) return 2000;
+    return MAX_RENDERED_NOTES;
+  }
+
   private function applyNoteAppearance(note:Note):Void
   {
     if (note == null) return;
@@ -4384,16 +4403,6 @@ function addDensityUI():Void
     var density:Float = Math.max(1, noteDensity);
     var scale:Float = 1 / (1 + (Math.log(density) * 0.12));
     return FlxMath.bound(scale, 0.45, 1);
-  }
-
-  private inline function getMaxRenderedNotes():Int
-  {
-    if (_song == null) return 0;
-    var total:Int = CoolUtil.getNoteAmount(_song);
-    if (total >= 5200000) return 256;
-    if (total >= 2000000) return 384;
-    if (total >= 500000) return 768;
-    return 6000;
   }
 
   private inline function lowerBoundSectionNotes(notes:Array<Dynamic>, targetTime:Float):Int
@@ -4559,13 +4568,10 @@ function addDensityUI():Void
     var rendered:Int = 0;
     var tolerance:Float = Math.max(1, Conductor.stepCrochet * 0.08);
     var startIndex:Int = lowerBoundSectionNotes(notes, visibleStart - tolerance);
-    var totalNotes:Int = CoolUtil.getNoteAmount(_song);
-    var maxRenderedNotes:Int = (totalNotes >= 5200000) ? 256 : (totalNotes >= 2000000 ? 384 : (totalNotes >= 500000 ? 768 : 6000));
-    var heavyChartMode:Bool = totalNotes >= 500000;
 
     for (idx in startIndex...notes.length)
     {
-      if (rendered >= maxRenderedNotes) break;
+      if (rendered >= getRenderedNoteCap()) break;
 
       var i:Array<Dynamic> = notes[idx];
       if (i == null || i.length < 2) continue;
@@ -4589,7 +4595,7 @@ function addDensityUI():Void
       applyNoteAppearance(note);
       noteGroup.add(note);
 
-      if (!heavyChartMode && note.sustainLength > 0)
+      if (note.sustainLength > 0)
       {
         var sustain:FlxSprite = setupSusNote(note, sectionBeats);
         sustain.visible = true;
@@ -4598,7 +4604,7 @@ function addDensityUI():Void
         sustainGroup.add(sustain);
       }
 
-      if (!heavyChartMode && i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
+      if (i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
       {
         var typeInt:Null<Int> = noteTypeMap.get(i[3]);
         var theType:String = '' + typeInt;
