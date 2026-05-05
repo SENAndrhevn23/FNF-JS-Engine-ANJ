@@ -6,20 +6,15 @@ import sys.*;
 import sys.io.*;
 #end
 
-// LUA is generally not supported on HTML5 in FNF engines 
-// because it relies on C++ (hxluajit/cpp package).
-#if (LUA_ALLOWED && !html5)
-    import hxluajit.*;
-    import hxluajit.Types;
-    import psychlua.*;
-#elseif !html5
-    // This branch handles cases where LUA_ALLOWED might be false 
-    // but the files are still imported for desktop.
-    import psychlua.FunkinLua; 
-    import psychlua.HScript;
+#if LUA_ALLOWED
+import hxluajit.*;
+import hxluajit.Types;
+import psychlua.*;
 #else
-    // HTML5 BRANCH: Skip FunkinLua/Lua entirely to avoid the C++ Pointer error.
-    import psychlua.HScript;
+import psychlua.FunkinLua; // TODO: test and seperate this into LuaUtils
+// import psychlua.LuaUtils;
+import psychlua.HScript;
+// import psychlua.ScriptHandler;
 #end
 
 #if flxanimate
@@ -48,7 +43,7 @@ import flixel.text.FlxText;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import flixel.group.FlxSpriteGroup;
-import flixel.group.FlxTypedGroup;
+import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.util.FlxDestroyUtil;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.FlxSubState;
