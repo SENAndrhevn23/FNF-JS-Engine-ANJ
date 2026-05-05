@@ -288,7 +288,6 @@ class ChartingState extends MusicBeatState
   private var noteRenderDirty:Bool = true;
 
   // Safety cap so one extremely dense viewport cannot explode the sprite count.
-  private static inline var MAX_RENDERED_NOTES:Int = 3000;
   var noteAlphaStepper:FlxUINumericStepper;
   var showNotesCheckbox:FlxUICheckBox;
 
@@ -2774,68 +2773,54 @@ function addDensityUI():Void
 
     if (FlxG.mouse.justPressed)
     {
-      var insideGrid:Bool = FlxG.mouse.x > gridBG.x
-        && FlxG.mouse.x < gridBG.x + gridBG.width
-        && FlxG.mouse.y > gridBG.y
-        && FlxG.mouse.y < gridBG.y + (GRID_SIZE * getSectionBeats() * 4) * zoomList[curZoom];
-
-      if (insideGrid)
+      var clickedNote:Array<Dynamic> = findMatchingSectionNoteAtMouse(curSec);
+      if (clickedNote != null)
       {
-        var clickedTime:Float = getMouseSelectedStrumTime();
-        var clickedLane:Int = getMouseSelectedNoteData();
-        var clickedNote:Array<Dynamic> = findSectionNote(curSec, clickedTime, clickedLane);
-
-        if (clickedNote != null)
-        {
-          if (!FlxG.keys.pressed.CONTROL && !FlxG.keys.pressed.ALT)
-          {
-            saveUndo(_song);
-            if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('removeNote'), 0.7);
-            selectionNote.playAnim('pressed' + selectionNote.noteData, true);
-            if (curSelectedNote == clickedNote) curSelectedNote = null;
-            _song.notes[curSec].sectionNotes.remove(clickedNote);
-            updateGrid(false);
-            unsavedChanges = true;
-          }
-          else
-          {
-            saveUndo(_song);
-            if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('selectNote'), 0.7);
-            curSelectedNote = clickedNote;
-            curEventSelected = 0;
-            changeEventSelected();
-            if (FlxG.keys.pressed.ALT)
-            {
-              curSelectedNote[3] = noteTypeIntMap.get(currentType);
-              updateGrid(false);
-            }
-            updateNoteUI();
-          }
-        }
-        else
+        if (!FlxG.keys.pressed.CONTROL && !FlxG.keys.pressed.ALT)
         {
           saveUndo(_song);
-          FlxG.log.add('added note');
-          addNote();
-          var addCount:Float = 0;
-          if (check_stackActive.checked)
-          {
-            addCount = stepperStackNum.value * stepperStackOffset.value - 1;
-          }
-          for (i in 0...Std.int(addCount))
-          {
-            addNote(curSelectedNote[0] + (15000 / Conductor.bpm) / stepperStackOffset.value, curSelectedNote[1] + Math.floor(stepperStackSideOffset.value),
-              currentType);
-          }
-          selectionNote.playAnim('confirm' + selectionNote.noteData, true);
-          if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('addedNote'), 0.7);
-
-          updateNoteUI();
+          if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('removeNote'), 0.7);
         }
-      } else if (soundEffectsCheck.checked)
+        if (FlxG.keys.pressed.CONTROL || FlxG.keys.pressed.ALT)
+        {
+          if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('selectNote'), 0.7);
+        }
+
+        if (FlxG.keys.pressed.CONTROL)
+        {
+          selectSectionNoteData(clickedNote);
+        } else if (FlxG.keys.pressed.ALT)
+        {
+          selectSectionNoteData(clickedNote);
+          curSelectedNote[3] = noteTypeIntMap.get(currentType);
+          updateGrid(false);
+        } else
+        {
+          selectionNote.playAnim('pressed' + selectionNote.noteData, true);
+          deleteSectionNoteData(curSec, clickedNote);
+          updateGrid(false);
+        }
+      } else if (isMouseInsideGrid())
       {
-        FlxG.sound.play(Paths.sound('click'));
-      }
+        saveUndo(_song);
+        FlxG.log.add('added note');
+        addNote();
+        var addCount:Float = 0;
+        if (check_stackActive.checked)
+        {
+          addCount = stepperStackNum.value * stepperStackOffset.value - 1;
+        }
+        for (i in 0...Std.int(addCount))
+        {
+          addNote(curSelectedNote[0] + (15000 / Conductor.bpm) / stepperStackOffset.value, curSelectedNote[1] + Math.floor(stepperStackSideOffset.value),
+            currentType);
+        }
+        selectionNote.playAnim('confirm' + selectionNote.noteData, true);
+        if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('addedNote'), 0.7);
+
+        // updateGrid(false);
+        updateNoteUI();
+      } else if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('click'));
     }
 
     var blockInput:Bool = false;
@@ -2963,48 +2948,38 @@ function addDensityUI():Void
       }
 
       if (FlxG.keys.pressed.C && !FlxG.keys.pressed.CONTROL)
-      {
-        if (FlxG.mouse.x > gridBG.x
-          && FlxG.mouse.x < gridBG.x + gridBG.width
-          && FlxG.mouse.y > gridBG.y
-          && FlxG.mouse.y < gridBG.y + gridBG.height)
-        {
-          var holdTime:Float = getMouseSelectedStrumTime();
-          var holdLane:Int = getMouseSelectedNoteData();
-          if (findSectionNote(curSec, holdTime, holdLane) == null)
+        if (isMouseInsideGrid()) if (!FlxG.keys.pressed.CONTROL) // stop crashing
           {
-            addNote(); // allows you to draw notes by holding C
-            var addCount:Float = 0;
-            if (check_stackActive.checked)
+            if (findMatchingSectionNoteAtMouse(curSec) == null)
             {
-              addCount = stepperStackNum.value * stepperStackOffset.value - 1;
-            }
-            for (i in 0...Std.int(addCount))
-            {
-              addNote(curSelectedNote[0] + (15000 / Conductor.bpm) / stepperStackOffset.value, curSelectedNote[1] + Math.floor(stepperStackSideOffset.value),
-                currentType);
+              addNote(); // allows you to draw notes by holding C
+              var addCount:Float = 0;
+              if (check_stackActive.checked)
+              {
+                addCount = stepperStackNum.value * stepperStackOffset.value - 1;
+              }
+              for (i in 0...Std.int(addCount))
+              {
+                addNote(curSelectedNote[0] + (15000 / Conductor.bpm) / stepperStackOffset.value, curSelectedNote[1] + Math.floor(stepperStackSideOffset.value),
+                  currentType);
+              }
             }
           }
-        }
-      }
       if (FlxG.keys.pressed.C && FlxG.keys.pressed.CONTROL)
-      {
-        if (FlxG.mouse.x > gridBG.x
-          && FlxG.mouse.x < gridBG.x + gridBG.width
-          && FlxG.mouse.y > gridBG.y
-          && FlxG.mouse.y < gridBG.y + gridBG.height)
+        if (isMouseInsideGrid())
         {
-          var holdTime:Float = getMouseSelectedStrumTime();
-          var holdLane:Int = getMouseSelectedNoteData();
-          var holdNote:Array<Dynamic> = findSectionNote(curSec, holdTime, holdLane);
-          if (holdNote != null)
+          var deleteMatches = findMatchingSectionNotesAtTimeAndLane(curSec, getMouseChartStrumTime(), getMouseChartLane());
+          if (deleteMatches.length > 0)
           {
             saveUndo(_song);
-            _song.notes[curSec].sectionNotes.remove(holdNote);
+            if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('removeNote'), 0.7);
+            for (note in deleteMatches)
+            {
+              deleteSectionNoteData(curSec, note);
+            }
             updateGrid(false);
           }
         }
-      }
 
       if (FlxG.keys.justPressed.TAB)
       {
@@ -4212,42 +4187,91 @@ function addDensityUI():Void
     sectionDensityCache.set(sectionIndex, buckets);
   }
 
-  private function findSectionNote(sectionIndex:Int, strumTime:Float, noteData:Int):Array<Dynamic>
-  {
-    if (_song == null || _song.notes == null || _song.notes[sectionIndex] == null || _song.notes[sectionIndex].sectionNotes == null)
-      return null;
 
-    var sectionNotes = _song.notes[sectionIndex].sectionNotes;
-    for (note in sectionNotes)
+  private inline function isMouseInsideGrid():Bool
+  {
+    return FlxG.mouse.x > gridBG.x
+      && FlxG.mouse.x < gridBG.x + gridBG.width
+      && FlxG.mouse.y > gridBG.y
+      && FlxG.mouse.y < gridBG.y + gridBG.height;
+  }
+
+  private inline function getMouseChartLane():Int
+  {
+    return Math.floor((FlxG.mouse.x - GRID_SIZE) / GRID_SIZE);
+  }
+
+  private inline function getMouseChartStrumTime():Float
+  {
+    return sectionStartTime() + getStrumTime(FlxG.mouse.y);
+  }
+
+  private function findMatchingSectionNotesAtTimeAndLane(sectionIndex:Int, strumTime:Float, lane:Int):Array<Array<Dynamic>>
+  {
+    var matches:Array<Array<Dynamic>> = [];
+
+    if (_song == null || _song.notes == null || sectionIndex < 0 || sectionIndex >= _song.notes.length) return matches;
+    if (_song.notes[sectionIndex] == null || _song.notes[sectionIndex].sectionNotes == null) return matches;
+    if (lane < 0 || lane > 7) return matches;
+
+    var buckets = getSectionDensityCache(sectionIndex);
+    var density:Int = Std.int(Math.max(1, noteDensity));
+    var bucket:Int = Std.int(Math.floor(strumTime / density));
+    var startBucket:Int = bucket - 1;
+    if (startBucket < 0) startBucket = 0;
+    var endBucket:Int = bucket + 1;
+
+    for (i in startBucket...endBucket + 1)
     {
-      if (note != null && note.length > 1 && note[1] != null && Std.int(note[1]) == noteData && Math.abs(note[0] - strumTime) <= 0.5)
-        return note;
+      if (!buckets.exists(i)) continue;
+
+      for (note in buckets.get(i))
+      {
+        if (note == null || note.length < 2) continue;
+        if (Std.int(note[1]) != lane) continue;
+        if (Math.abs((note[0] : Float) - strumTime) > 0.5) continue;
+        matches.push(note);
+      }
     }
-    return null;
+
+    return matches;
   }
 
-  private inline function getMouseSelectedStrumTime():Float
+  private function findMatchingSectionNoteAtMouse(sectionIndex:Int):Null<Array<Dynamic>>
   {
-    return getStrumTime(selectionNote.y * (getSectionBeats() / 4), false) + sectionStartTime();
+    var strumTime:Float = getMouseChartStrumTime();
+    var lane:Int = getMouseChartLane();
+    var matches = findMatchingSectionNotesAtTimeAndLane(sectionIndex, strumTime, lane);
+    return matches.length > 0 ? matches[0] : null;
   }
 
-  private function getMouseSelectedNoteData():Int
+  private function deleteSectionNoteData(sectionIndex:Int, note:Array<Dynamic>):Void
   {
-    return selectionNote.noteData;
+    if (note == null) return;
+    if (_song == null || _song.notes == null || sectionIndex < 0 || sectionIndex >= _song.notes.length) return;
+    if (_song.notes[sectionIndex] == null || _song.notes[sectionIndex].sectionNotes == null) return;
+
+    if (curSelectedNote == note) curSelectedNote = null;
+    uncacheSectionNote(sectionIndex, note);
+    _song.notes[sectionIndex].sectionNotes.remove(note);
+    invalidateRenderCache(sectionIndex);
+    noteRenderDirty = true;
+    unsavedChanges = true;
   }
 
-  private function getRenderBudget(sectionIndex:Int):Int
+  private function selectSectionNoteData(note:Array<Dynamic>, ?updateTheGrid:Bool = true):Void
   {
-    if (_song == null || _song.notes == null || _song.notes[sectionIndex] == null || _song.notes[sectionIndex].sectionNotes == null)
-      return MAX_RENDERED_NOTES;
+    if (note == null) return;
+    curSelectedNote = note;
+    changeEventSelected();
 
-    var sectionCount:Int = _song.notes[sectionIndex].sectionNotes.length;
-    if (sectionCount > 1000000) return 300;
-    if (sectionCount > 250000) return 600;
-    if (sectionCount > 50000) return 1200;
-    if (sectionCount > 20000) return 2000;
-    return MAX_RENDERED_NOTES;
+    if (updateTheGrid)
+    {
+      updateGrid(false);
+      updateNoteUI();
+    }
   }
+
 
   private inline function isNoteRenderEnabled():Bool
   {
@@ -4371,20 +4395,14 @@ function addDensityUI():Void
     var startBucket:Int = Std.int(Math.floor(visibleStart / density));
     var endBucket:Int = Std.int(Math.floor(visibleEnd / density));
 
-    var rendered:Int = 0;
-    var renderBudget:Int = getRenderBudget(sectionIndex);
-    var showTypeLabels:Bool = renderBudget >= 1200;
-    var showSustains:Bool = renderBudget >= 600;
     var buckets = getSectionDensityCache(sectionIndex);
     for (bucket in startBucket...endBucket + 1)
     {
-      if (rendered >= renderBudget) break;
       if (!buckets.exists(bucket)) continue;
 
       for (i in buckets.get(bucket))
       {
-        if (rendered >= renderBudget) break;
-        if (i == null || i.length < 2) continue;
+          if (i == null || i.length < 2) continue;
 
         var daStrumTime:Float = i[0];
         if (daStrumTime < visibleStart || daStrumTime > visibleEnd) continue;
@@ -4404,7 +4422,7 @@ function addDensityUI():Void
         applyNoteAppearance(note);
         noteGroup.add(note);
 
-        if (note.sustainLength > 0 && showSustains)
+        if (note.sustainLength > 0)
         {
           var sustain:FlxSprite = setupSusNote(note, sectionBeats);
           sustain.visible = true;
@@ -4413,7 +4431,7 @@ function addDensityUI():Void
           sustainGroup.add(sustain);
         }
 
-        if (showTypeLabels && i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
+        if (i[3] != null && note.noteType != null && note.noteType.length > 0 && typeGroup != null)
         {
           var typeInt:Null<Int> = noteTypeMap.get(i[3]);
           var theType:String = '' + typeInt;
@@ -4430,7 +4448,6 @@ function addDensityUI():Void
           daText.sprTracker = note;
         }
 
-        rendered++;
       }
     }
   }
@@ -4625,20 +4642,26 @@ function addDensityUI():Void
 
   public function doANoteThing(cs, d, style)
   {
-    var lane:Int = d % 4;
-    var existingNote:Array<Dynamic> = findSectionNote(curSec, cs, lane);
+    var delnote = false;
+    var matchedNotes = findMatchingSectionNotesAtTimeAndLane(curSec, cs, d);
 
-    if (existingNote != null)
+    if (matchedNotes.length > 0)
     {
       saveUndo(_song);
-      _song.notes[curSec].sectionNotes.remove(existingNote);
+      if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('removeNote'), 0.7);
+      for (note in matchedNotes)
+      {
+        deleteSectionNoteData(curSec, note);
+      }
+      delnote = true;
       updateGrid(false);
-      unsavedChanges = true;
-      return;
     }
 
-    saveUndo(_song);
-    addNote(cs, d, style);
+    if (!delnote)
+    {
+      saveUndo(_song);
+      addNote(cs, d, style);
+    }
   }
 
   function clearSong():Void
@@ -4722,7 +4745,7 @@ function addDensityUI():Void
           if (isNoteRenderEnabled())
           {
             curRenderedNotes.add(note);
-            if (note.sustainLength > 0 && showSustains)
+            if (note.sustainLength > 0)
             {
               var sus:FlxSprite = setupSusNote(note, beats);
               sus.visible = true;
