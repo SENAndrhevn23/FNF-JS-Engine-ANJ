@@ -377,7 +377,9 @@ class Project extends HXProject
 		setHaxedef("HXCPP_CHECK_POINTER");
 		setHaxedef("HXCPP_STACK_LINE");
 		setHaxedef("HXCPP_STACK_TRACE");
-		setHaxedef("hscriptPos");
+		if (HSCRIPT_ALLOWED.isEnabled(this))
+			setHaxedef("hscriptPos");
+
 		setHaxedef("no-deprecation-warnings");
 		setHaxedef("FLX_NO_FOCUS_LOST_SCREEN"); // I FORGOT LMAFOAOO
 
@@ -397,7 +399,10 @@ class Project extends HXProject
 		if (!isDebug())
 		{
 			setHaxedef("FLX_NO_DEBUG");
+			setHaxedef("analyzer-optimize");
 		}
+		// addHaxeFlag("-dce full");
+		addHaxeFlag("-dce no");
 
 		// Disable the built in pause screen when unfocusing the game.
 		setHaxedef("FLX_NO_FOCUS_LOST_SCREEN");
@@ -443,7 +448,9 @@ class Project extends HXProject
 		addHaxelib('flixel'); // Game engine
 
 		addHaxelib('flixel-addons'); // Additional utilities for Flixel
-		addHaxelib('hscript-improved'); // Scripting
+		if (HSCRIPT_ALLOWED.isEnabled(this))
+			addHaxelib('hscript-improved'); // Scripting
+
 		addHaxelib('flixel-ui'); // UI framework
 		addHaxelib('grig.audio');
 		addHaxelib('funkin.vis');
