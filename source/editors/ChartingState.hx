@@ -288,8 +288,14 @@ class ChartingState extends MusicBeatState
   private var noteRenderDirty:Bool = true;
 
   // Safety cap so one extremely dense viewport cannot explode the sprite count.
-  private static inline var MAX_RENDERED_NOTES:Int = 6000;
+  // Keeping this modest avoids huge sprite/update spikes in very dense charts.
+  private static inline var MAX_RENDERED_NOTES:Int = 1024;
   var noteAlphaStepper:FlxUINumericStepper;
+
+  // Cached section start times. This removes the repeated O(sectionCount) walk
+  // from hot paths like update(), rendering, and hit testing.
+  private var sectionStartTimeCache:Array<Float> = [];
+  private var sectionStartTimeCacheDirty:Bool = true;
   var showNotesCheckbox:FlxUICheckBox;
 
   var text:String = "";
@@ -1570,6 +1576,7 @@ class ChartingState extends MusicBeatState
         }
 
         invalidateRenderCache();
+        invalidateTimingCache();
     });
     deleteSections.color = FlxColor.YELLOW;
     deleteSections.label.color = FlxColor.WHITE;
@@ -2541,6 +2548,7 @@ function addDensityUI():Void
 
         case 'Change BPM':
           _song.notes[curSec].changeBPM = check.checked;
+          invalidateTimingCache();
           FlxG.log.add('changed bpm shit');
         case "Alt Animation":
           _song.notes[curSec].altAnim = check.checked;
@@ -2555,6 +2563,7 @@ function addDensityUI():Void
       {
         case 'section_beats':
           _song.notes[curSec].sectionBeats = nums.value;
+          invalidateTimingCache();
           reloadGridLayer();
 
         case 'song_speed':
@@ -2564,6 +2573,7 @@ function addDensityUI():Void
           _song.bpm = nums.value;
           Conductor.mapBPMChanges(_song);
           Conductor.changeBPM(nums.value);
+          invalidateTimingCache();
 
         case 'note_susLength':
           if (curSelectedNote != null && curSelectedNote[2] != null)
@@ -2574,6 +2584,7 @@ function addDensityUI():Void
 
         case 'section_bpm':
           _song.notes[curSec].bpm = nums.value;
+          invalidateTimingCache();
           updateGrid();
 
         case 'note_density':
@@ -2651,22 +2662,59 @@ function addDensityUI():Void
 
   var updatedSection:Bool = false;
 
-  function sectionStartTime(add:Int = 0):Float
+  private function invalidateTimingCache():Void
   {
+    sectionStartTimeCacheDirty = true;
+    sectionStartTimeCache = [];
+  }
+
+  private function rebuildTimingCache():Void
+  {
+    sectionStartTimeCache = [];
+    if (_song == null || _song.notes == null)
+    {
+      sectionStartTimeCacheDirty = false;
+      return;
+    }
+
     var daBPM:Float = _song.bpm;
     var daPos:Float = 0;
-    for (i in 0...curSec + add)
+
+    for (i in 0..._song.notes.length)
     {
+      sectionStartTimeCache.push(daPos);
+
       if (_song.notes[i] != null)
       {
-        if (_song.notes[i].changeBPM)
+        if (_song.notes[i].changeBPM && _song.notes[i].bpm > 0)
         {
           daBPM = _song.notes[i].bpm;
         }
         daPos += getSectionBeats(i) * (1000 * 60 / daBPM);
       }
     }
-    return daPos;
+
+    // Sentinel value: start time immediately after the last known section.
+    sectionStartTimeCache.push(daPos);
+    sectionStartTimeCacheDirty = false;
+  }
+
+  function sectionStartTime(add:Int = 0):Float
+  {
+    if (_song == null || _song.notes == null || _song.notes.length < 1)
+    {
+      return 0;
+    }
+
+    if (sectionStartTimeCacheDirty || sectionStartTimeCache.length != _song.notes.length + 1)
+    {
+      rebuildTimingCache();
+    }
+
+    var target:Int = curSec + add;
+    if (target < 0) return 0;
+    if (target >= sectionStartTimeCache.length) return sectionStartTimeCache[sectionStartTimeCache.length - 1];
+    return sectionStartTimeCache[target];
   }
 
   var lastConductorPos:Float;
@@ -2774,7 +2822,8 @@ function addDensityUI():Void
 
     if (FlxG.mouse.justPressed)
     {
-      if (FlxG.mouse.overlaps(curRenderedNotes))
+      var hoveredNote:Null<Note> = getHoveredRenderedNote();
+      if (hoveredNote != null)
       {
         if (!FlxG.keys.pressed.CONTROL && !FlxG.keys.pressed.ALT)
         {
@@ -2785,25 +2834,21 @@ function addDensityUI():Void
         {
           if (soundEffectsCheck.checked) FlxG.sound.play(Paths.sound('selectNote'), 0.7);
         }
-        curRenderedNotes.forEachAlive(function(note:Note) {
-          if (FlxG.mouse.overlaps(note))
-          {
-            if (FlxG.keys.pressed.CONTROL)
-            {
-              selectNote(note);
-            } else if (FlxG.keys.pressed.ALT)
-            {
-              selectNote(note);
-              curSelectedNote[3] = noteTypeIntMap.get(currentType);
-              updateGrid(false);
-            } else
-            {
-              selectionNote.playAnim('pressed' + selectionNote.noteData, true);
-              // trace('tryin to delete note...');
-              deleteNote(note);
-            }
-          }
-        });
+
+        if (FlxG.keys.pressed.CONTROL)
+        {
+          selectNote(hoveredNote);
+        } else if (FlxG.keys.pressed.ALT)
+        {
+          selectNote(hoveredNote);
+          curSelectedNote[3] = noteTypeIntMap.get(currentType);
+          updateGrid(false);
+        } else
+        {
+          selectionNote.playAnim('pressed' + selectionNote.noteData, true);
+          // trace('tryin to delete note...');
+          deleteNote(hoveredNote);
+        }
       } else
       {
         if (FlxG.mouse.x > gridBG.x
@@ -2958,7 +3003,7 @@ function addDensityUI():Void
       }
 
       if (FlxG.keys.pressed.C && !FlxG.keys.pressed.CONTROL)
-        if (!FlxG.mouse.overlaps(curRenderedNotes)) // lmao cant place notes when your cursor already overlaps one
+        if (getHoveredRenderedNote() == null)
         if (FlxG.mouse.x > gridBG.x
           && FlxG.mouse.x < gridBG.x + gridBG.width
           && FlxG.mouse.y > gridBG.y
@@ -2976,12 +3021,18 @@ function addDensityUI():Void
                 currentType);
             }
           }
-      if (FlxG.keys.pressed.C && FlxG.keys.pressed.CONTROL) if (FlxG.mouse.overlaps(curRenderedNotes)) if (FlxG.mouse.x > gridBG.x
+      if (FlxG.keys.pressed.C && FlxG.keys.pressed.CONTROL) if (FlxG.mouse.x > gridBG.x
         && FlxG.mouse.x < gridBG.x + gridBG.width
         && FlxG.mouse.y > gridBG.y
-        && FlxG.mouse.y < gridBG.y + gridBG.height) curRenderedNotes.forEach(function(note:Note) {
-          if (FlxG.mouse.overlaps(note)) deleteNote(note); // mass deletion of notes
+        && FlxG.mouse.y < gridBG.y + gridBG.height)
+      {
+        curRenderedNotes.forEachAlive(function(note:Note) {
+          if (FlxG.mouse.x >= note.x && FlxG.mouse.x <= note.x + note.width && FlxG.mouse.y >= note.y && FlxG.mouse.y <= note.y + note.height)
+          {
+            deleteNote(note); // mass deletion of notes
+          }
         });
+      }
 
       if (FlxG.keys.justPressed.TAB)
       {
@@ -4461,6 +4512,34 @@ function addDensityUI():Void
       };
 
     _song.notes.push(sec);
+    invalidateTimingCache();
+  }
+
+  private function getRenderedNoteAtPosition(testX:Float, testY:Float):Null<Note>
+  {
+    var bestNote:Null<Note> = null;
+    var bestDist:Float = 1.0e30;
+
+    curRenderedNotes.forEachAlive(function(note:Note) {
+      if (note == null || !note.exists || !note.visible) return;
+
+      if (testX >= note.x && testX <= note.x + note.width && testY >= note.y && testY <= note.y + note.height)
+      {
+        var dist:Float = Math.abs(testY - note.y);
+        if (dist < bestDist)
+        {
+          bestDist = dist;
+          bestNote = note;
+        }
+      }
+    });
+
+    return bestNote;
+  }
+
+  private inline function getHoveredRenderedNote():Null<Note>
+  {
+    return getRenderedNoteAtPosition(FlxG.mouse.x, FlxG.mouse.y);
   }
 
   function selectNote(note:Note, ?updateTheGrid:Bool = true):Void
@@ -4564,17 +4643,12 @@ function addDensityUI():Void
   public function doANoteThing(cs, d, style)
   {
     var delnote = false;
-    if (strumLineNotes.members[d].overlaps(curRenderedNotes))
+    var hitNote:Null<Note> = getRenderedNoteAtPosition(strumLineNotes.members[d].x + 1, strumLine.y + 1);
+    if (hitNote != null && hitNote.noteData == d % 4)
     {
-      curRenderedNotes.forEachAlive(function(note:Note) {
-        if (note.overlapsPoint(new FlxPoint(strumLineNotes.members[d].x + 1, strumLine.y + 1)) && note.noteData == d % 4)
-        {
-          // trace('tryin to delete note...');
-          saveUndo(_song);
-          if (!delnote) deleteNote(note, true);
-          delnote = true;
-        }
-      });
+      saveUndo(_song);
+      deleteNote(hitNote, true);
+      delnote = true;
     }
 
     if (!delnote)
@@ -4592,6 +4666,7 @@ function addDensityUI():Void
     }
 
     invalidateRenderCache();
+    invalidateTimingCache();
     unsavedChanges = true;
     updateGrid();
   }
@@ -4750,6 +4825,7 @@ function addDensityUI():Void
       trace("Performed an Undo! Undos remaining: " + undos.length);
       unsavedChanges = true;
       invalidateRenderCache();
+      invalidateTimingCache();
       if (curSection > _song.notes.length) changeSection(_song.notes.length - 1);
       updateGrid();
     }
@@ -4785,6 +4861,7 @@ function addDensityUI():Void
         PlayState.SONG = Song.loadFromJson(songName.toLowerCase(), songName.toLowerCase());
       }
       CoolUtil.currentDifficulty = diff;
+      invalidateTimingCache();
       FlxG.resetState();
       if (idleMusic != null && idleMusic.music != null) idleMusic.destroy();
     } else
