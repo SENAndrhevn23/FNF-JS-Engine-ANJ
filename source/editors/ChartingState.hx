@@ -4138,6 +4138,25 @@ var lastConductorPos:Float;
     sectionDensityCacheDirty.set(sectionIndex, true);
   }
 
+  private inline function compareNoteEntries(a:Array<Dynamic>, b:Array<Dynamic>):Int
+  {
+    var aTime:Float = (a != null && a.length > 0 && a[0] != null) ? a[0] : 0;
+    var bTime:Float = (b != null && b.length > 0 && b[0] != null) ? b[0] : 0;
+    if (aTime < bTime) return -1;
+    if (aTime > bTime) return 1;
+
+    var aLane:Int = (a != null && a.length > 1 && a[1] != null) ? Std.int(a[1]) : 0;
+    var bLane:Int = (b != null && b.length > 1 && b[1] != null) ? Std.int(b[1]) : 0;
+    if (aLane < bLane) return -1;
+    if (aLane > bLane) return 1;
+
+    var aSus:Float = (a != null && a.length > 2 && a[2] != null) ? a[2] : 0;
+    var bSus:Float = (b != null && b.length > 2 && b[2] != null) ? b[2] : 0;
+    if (aSus < bSus) return -1;
+    if (aSus > bSus) return 1;
+    return 0;
+  }
+
   private function rebuildSectionDensityCache(sectionIndex:Int):Map<Int, Array<Array<Dynamic>>>
   {
     var buckets:Map<Int, Array<Array<Dynamic>>> = new Map();
@@ -4156,6 +4175,15 @@ var lastConductorPos:Float;
       var bucket:Int = Std.int(Math.floor(note[0] / density));
       if (!buckets.exists(bucket)) buckets.set(bucket, []);
       buckets.get(bucket).push(note);
+    }
+
+    for (bucket in buckets.keys())
+    {
+      var bucketNotes = buckets.get(bucket);
+      if (bucketNotes != null && bucketNotes.length > 1)
+      {
+        bucketNotes.sort(compareNoteEntries);
+      }
     }
 
     sectionDensityCache.set(sectionIndex, buckets);
@@ -4182,37 +4210,13 @@ var lastConductorPos:Float;
   private function cacheSectionNote(sectionIndex:Int, note:Array<Dynamic>):Void
   {
     if (note == null) return;
-
-    var buckets = getSectionDensityCache(sectionIndex);
-    var bucket:Int = getNoteDensityBucket(note);
-    if (!buckets.exists(bucket)) buckets.set(bucket, []);
-    buckets.get(bucket).push(note);
-    sectionDensityCache.set(sectionIndex, buckets);
+    invalidateRenderCache(sectionIndex);
   }
 
   private function uncacheSectionNote(sectionIndex:Int, note:Array<Dynamic>):Void
   {
     if (note == null) return;
-    if (!sectionDensityCache.exists(sectionIndex)) return;
-
-    var buckets = getSectionDensityCache(sectionIndex);
-    var bucket:Int = getNoteDensityBucket(note);
-    if (!buckets.exists(bucket)) return;
-
-    var bucketNotes = buckets.get(bucket);
-    for (idx in 0...bucketNotes.length)
-    {
-      if (bucketNotes[idx] == note)
-      {
-        bucketNotes.splice(idx, 1);
-        break;
-      }
-    }
-    if (bucketNotes.length <= 0)
-    {
-      buckets.remove(bucket);
-    }
-    sectionDensityCache.set(sectionIndex, buckets);
+    invalidateRenderCache(sectionIndex);
   }
 
 
@@ -4322,6 +4326,27 @@ var lastConductorPos:Float;
     return height;
   }
 
+  private inline function lowerBoundNoteTime(notes:Array<Array<Dynamic>>, target:Float):Int
+  {
+    var low:Int = 0;
+    var high:Int = notes.length;
+
+    while (low < high)
+    {
+      var mid:Int = (low + high) >> 1;
+      var midValue:Float = (notes[mid] != null && notes[mid].length > 0 && notes[mid][0] != null) ? notes[mid][0] : 0;
+      if (midValue < target)
+      {
+        low = mid + 1;
+      } else
+      {
+        high = mid;
+      }
+    }
+
+    return low;
+  }
+
   private function renderVisibleNotesForSection(sectionIndex:Int, sectionStart:Float, sectionBeats:Float, isNextSection:Bool,
     noteGroup:FlxTypedGroup<Note>, sustainGroup:FlxTypedGroup<FlxSprite>, typeGroup:Null<FlxTypedGroup<AttachedFlxText>>):Void
   {
@@ -4345,13 +4370,19 @@ var lastConductorPos:Float;
       if (rendered >= MAX_RENDERED_NOTES) break;
       if (!buckets.exists(bucket)) continue;
 
-      for (i in buckets.get(bucket))
+      var bucketNotes = buckets.get(bucket);
+      if (bucketNotes == null || bucketNotes.length <= 0) continue;
+
+      var startIndex:Int = lowerBoundNoteTime(bucketNotes, visibleStart);
+      for (idx in startIndex...bucketNotes.length)
       {
         if (rendered >= MAX_RENDERED_NOTES) break;
+
+        var i = bucketNotes[idx];
         if (i == null || i.length < 2) continue;
 
         var daStrumTime:Float = i[0];
-        if (daStrumTime < visibleStart || daStrumTime > visibleEnd) continue;
+        if (daStrumTime > visibleEnd) break;
 
         var relTime:Float = daStrumTime - sectionStart;
         var noteY:Float = getNoteRenderY(relTime, sectionBeats);
